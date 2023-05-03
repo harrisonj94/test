@@ -44,6 +44,7 @@ jobs:
             exit 1
           fi
         id: check-main-tf
+        continue-on-error: true
 
       - name: Generate main.tf with user input
         if: ${{ steps.check-main-tf.outcome == 'failure' }}
