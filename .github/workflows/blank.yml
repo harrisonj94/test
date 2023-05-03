@@ -38,16 +38,15 @@ jobs:
         run: |
           if [ -f "main.tf" ]; then
             echo "main.tf already exists, skipping file generation."
-            exit 0
+            echo "::set-output name=file_exists::true"
           else
             echo "main.tf does not exist, continuing with file generation."
-            exit 1
+            echo "::set-output name=file_exists::false"
           fi
         id: check-main-tf
-        continue-on-error: true
 
       - name: Generate main.tf with user input
-        if: ${{ steps.check-main-tf.outcome == 'failure' }}
+        if: steps.check-main-tf.outputs.file_exists == 'false'
         run: |
           cat > main.tf << EOF
           ## Main Terraform file to call the vsphere-ubuntu-22.04.2-terraform module and execute with custom parameters
