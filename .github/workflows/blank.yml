@@ -1,0 +1,153 @@
+name: Generate CS main.tf Terraform File
+on:
+  workflow_dispatch:
+    inputs:
+      module:
+        description: 'Enter the module source to use from the modules folder'
+        required: true
+      vsphere_cluster:
+        description: 'Enter the vSphere cluster to deploy the VM in'
+        required: true
+      vsphere_datastore:
+        description: 'Enter the vSphere datastore to deploy the VM on'
+        required: true
+      vsphere_network:
+        description: 'Enter the vSphere port group to connect the VM to'
+        required: true
+      vsphere_template:
+        description: 'Enter the name of the vSphere template to use for the VM'
+        required: true
+      deployment_name_domain:
+        description: 'Enter the name to give the deployed VM in VMware and the hostname, and LOCAL domain name (comma-separated)'
+        required: true
+      deployment_cpu_ram:
+        description: 'Enter the number of CPUs and amount of RAM to allocate to the VM, in MB (comma-separated)'
+        required: true
+      deployment_network_info:
+        description: 'Enter the IP address, subnet mask, and default gateway for the VM (comma-separated)'
+        required: true
+      dns_server_list:
+        description: 'Enter a comma-separated list of DNS servers to use for the VM'
+        required: true
+
+jobs:
+  generate-main-tf:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check if main.tf exists
+        run: |
+          if [ -f "main.tf" ]; then
+            echo "main.tf already exists, skipping file generation."
+            exit 0
+          else
+            echo "main.tf does not exist, continuing with file generation."
+            exit 1
+          fi
+        id: check-main-tf
+
+      - name: Generate main.tf with user input
+        if: ${{ steps.check-main-tf.outcome == 'failure' }}
+        run: |
+          cat > main.tf << EOF
+          ## Main Terraform file to call the vsphere-ubuntu-22.04.2-terraform module and execute with custom parameters
+          ## Author Joe Harrison
+
+          ## Variables to be populated by GitHub Secrets at runtime
+          variable "aws_access_key_id" {}
+          variable "aws_secret_access_key" {}
+          variable "deployment_password" {}
+          variable "vsphere_password" {}
+
+          # Define the required version of Terraform and the required vSphere provider version
+          terraform {
+            required_version = ">= 1.4.5"
+
+            required_providers {
+              vsphere = {
+                source = "hashicorp/vsphere"
+                version = "2.3.1"
+              }
+            }
+            backend "s3" {
+            }
+          }
+
+          # Define the vSphere provider and specify the vSphere login credentials and server details
+          provider "vsphere" {
+            user           = "teraform-admin@utiligroup.local"
+            password       = var.vsphere_password
+            vsphere_server = "172.30.201.38"
+            allow_unverified_ssl = true
+          }
+
+          # Define the module source and its location
+          module "vsphere-ubnt" {
+            source = "./modules/<module>"
+
+            # Define AWS Information
+            aws_access_key_id     = var.aws_access_key_id
+            aws_secret_access_key = var.aws_secret_access_key
+
+            # Define vSphere information
+            vsphere_server        = "172.30.201.38"
+            vsphere_datacenter    = "TC"
+            vsphere_datastore     = "<vsphere_datastore>"
+            deployment_user       = "administrator"
+            deployment_password   = var.deployment_password
+
+            # Define VM deployment information
+            deployment_name       = "<deployment_name>"
+            deployment_vm_folder  = "Centre-Stage-Primary/New Deployments"
+            deployment_domain     = "<deployment_domain>"
+            deployment_cpu        = "<deployment_cpu>"
+            deployment_ram_mb     = "<deployment_ram_mb>"
+
+            # Define additional disks for the VM
+            deployment_additional_disks = [
+              {
+                id     = 1
+                dev    = "sdb"
+                lvm    = 0
+                sizeGB = 200
+                dir    = "/mnt/DATA-DRIVE"
+              }#,
+              #{
+              #  id     = 2
+              #  dev    = "sdc"
+              #  lvm    = 0
+              #  sizeGB = 200
+              #  dir    = "/mnt/DATA-DRIVE2"
+              #}
+            ]
+
+            # Define networking information for the VM
+            deployment_ip       = "<deployment_ip>"
+            deployment_subnet   = "<deployment_subnet>"
+            deployment_gateway  = "<deployment_gateway>"
+            dns_server_list     = [ "<dns_server_list>" ]
+            dns_suffix_list     = [ "" ]
+          }
+          EOF
+
+          # Replace the placeholders with the actual input values
+          sed -i "s|<module>|${{ github.event.inputs.module }}|g" main.tf
+          sed -i "s|<vsphere_cluster>|${{ github.event.inputs.vsphere_cluster }}|g" main.tf
+          sed -i "s|<vsphere_datastore>|${{ github.event.inputs.vsphere_datastore }}|g" main.tf
+          sed -i "s|<vsphere_network>|${{ github.event.inputs.vsphere_network }}|g" main.tf
+          sed -i "s|<vsphere_template>|${{ github.event.inputs.vsphere_template }}|g" main.tf
+          
+          IFS=',' read -ra DEPLOYMENT_NAME_DOMAIN <<< "${{ github.event.inputs.deployment_name_domain }}"
+          IFS=',' read -ra DEPLOYMENT_CPU_RAM <<< "${{ github.event.inputs.deployment_cpu_ram }}"
+          IFS=',' read -ra DEPLOYMENT_NETWORK_INFO <<< "${{ github.event.inputs.deployment_network_info }}"
+          
+          sed -i "s|<deployment_name>|${DEPLOYMENT_NAME_DOMAIN[0]}|g" main.tf
+          sed -i "s|<deployment_domain>|${DEPLOYMENT_NAME_DOMAIN[1]}|g" main.tf
+          sed -i "s|<deployment_cpu>|${DEPLOYMENT_CPU_RAM[0]}|g" main.tf
+          sed -i "s|<deployment_ram_mb>|${DEPLOYMENT_CPU_RAM[1]}|g" main.tf
+          sed -i "s|<deployment_ip>|${DEPLOYMENT_NETWORK_INFO[0]}|g" main.tf
+          sed -i "s|<deployment_subnet>|${DEPLOYMENT_NETWORK_INFO[1]}|g" main.tf
+          sed -i "s|<deployment_gateway>|${DEPLOYMENT_NETWORK_INFO[2]}|g" main.tf
+          sed -i "s|<dns_server_list>|${{ github.event.inputs.dns_server_list }}|g" main.tf
+
+          # Print the generated main.tf
+          cat main.tf
